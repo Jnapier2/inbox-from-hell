@@ -1,0 +1,26 @@
+{
+  "name": "inbox-from-hell",
+  "version": "0.2.8",
+  "private": true,
+  "type": "module",
+  "description": "Dependency-free browser game demonstrating stateful decision modeling, resilient local saves, accessible UI, and full-playthrough acceptance testing.",
+  "scripts": {
+    "test": "node tests/smoke-test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "author": "Jerry R. Napier",
+  "license": "UNLICENSED",
+  "copyright": "Copyright © 2026 Gateway Information Group LLC. All Rights Reserved.",
+  "homepage": "https://inbox-from-hell-demo.netlify.app/",
+  "keywords": [
+    "javascript",
+    "browser-game",
+    "decision-simulation",
+    "state-management",
+    "accessibility",
+    "local-storage",
+    "testing"
+  ]
+}
