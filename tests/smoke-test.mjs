@@ -247,7 +247,7 @@ async function validatePublicationScope() {
     'assets/screenshot-inbox.jpg',
     'assets/screenshot-mobile.jpg',
     'assets/screenshot-shift-audit.jpg'
-  ], 'portfolio media should contain one cover and three screenshots');
+  ], 'repository media should contain one cover and three screenshots');
   for (const asset of assets) {
     const bytes = await readFile(resolve(projectRoot, asset));
     assert.ok(bytes.length > 20_000, `${asset} should not be an empty placeholder`);

@@ -12,4 +12,4 @@ Progress and settings are stored in the browser's local storage for the site hos
 
 A website or game platform may process network, device, cookie, account, payment, or usage information under its own privacy policy. That platform activity is separate from the game's local save behavior and is controlled by the platform operator.
 
-For privacy questions, use the contact channel on the official portfolio or project page.
+For privacy questions, use the contact channel on the official project page.

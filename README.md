@@ -68,7 +68,7 @@ src/core/       Game state, rules, and resilient persistence
 src/content/    Tickets, shifts, actions, and outcome data
 src/ui/         Accessible rendering and browser interaction
 tests/          Dependency-free acceptance test
-assets/         Portfolio cover and product screenshots
+assets/         Promotional cover and product screenshots
 ```
 
 ## Privacy, security, and rights
