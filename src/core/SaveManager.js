@@ -1,7 +1,17 @@
-export const CURRENT_SAVE_SCHEMA = 1;
+export const CURRENT_SAVE_SCHEMA = 3;
 
 const migrations = new Map([
-  [1, save => save]
+  [1, save => save],
+  [2, save => ({
+    ...save,
+    progression: normalizeProgressionForMigration(save.progression),
+    clockMode: save.clockMode === 'incident' ? 'incident' : 'shift',
+    activeIncident: isRecord(save.activeIncident) ? save.activeIncident : null
+  })],
+  [3, save => ({
+    ...save,
+    progression: normalizeProgressionForMigration(save.progression)
+  })]
 ]);
 
 export class UnsupportedSaveSchemaError extends Error {
@@ -339,7 +349,28 @@ function assertCompatibleSaveShape(save) {
   if (!Array.isArray(save.queue)) missing.push('queue');
   if (!isRecord(save.handled)) missing.push('handled');
   if (!isRecord(save.metrics)) missing.push('metrics');
+  if (Number(save.saveSchema) >= 2 && !isRecord(save.progression)) missing.push('progression');
   if (missing.length > 0) {
     throw new Error(`Invalid save data: missing or malformed ${missing.join(', ')}.`);
   }
+}
+
+function normalizeProgressionForMigration(value) {
+  const raw = isRecord(value) ? value : {};
+  const insight = Number(raw.insight);
+  return {
+    insight: Number.isFinite(insight) && insight >= 0 ? Math.floor(insight) : 0,
+    artifacts: Array.isArray(raw.artifacts)
+      ? [...new Set(raw.artifacts.filter(item => typeof item === 'string'))]
+      : [],
+    pendingArtifactChoices: Array.isArray(raw.pendingArtifactChoices)
+      ? [...new Set(raw.pendingArtifactChoices.filter(item => typeof item === 'string'))]
+      : [],
+    officeRooms: Array.isArray(raw.officeRooms)
+      ? [...new Set(raw.officeRooms.filter(item => typeof item === 'string'))]
+      : [],
+    pendingRoomChoices: Array.isArray(raw.pendingRoomChoices)
+      ? [...new Set(raw.pendingRoomChoices.filter(item => typeof item === 'string'))]
+      : []
+  };
 }

@@ -67,10 +67,10 @@ export const METRIC_LABELS = {
 };
 
 export const METRIC_HELP = {
-  reputation: 'Public trust and review score. Hitting zero ends the run.',
-  sanity: 'Your ability to keep answering emails. Hitting zero ends the run.',
+  reputation: 'Public trust and review score. Hitting zero ends your employment.',
+  sanity: 'Your ability to keep answering emails. Hitting zero ends your assignment.',
   cash: 'Department budget. Negative cash triggers penalties at shift end.',
-  soulRisk: 'How close Infernal Accounts is to repossessing your soul. 100 ends the run.',
+  soulRisk: 'How close Infernal Accounts is to repossessing your soul. 100 ends your assignment.',
   containment: 'How stable the office reality field is. Low containment increases weirdness.',
   inboxHeat: 'How much attention your queue has attracted from bad departments.'
 };

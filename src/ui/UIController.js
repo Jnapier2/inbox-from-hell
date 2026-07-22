@@ -1,6 +1,8 @@
 import { renderApp } from './templates.js';
 import { formatDuration } from '../core/utils.js';
 
+const GUIDANCE_STORAGE_KEY = 'inbox-from-hell-guidance-v2';
+
 export class UIController {
   constructor({
     root,
@@ -18,7 +20,8 @@ export class UIController {
       rightTab: 'ops',
       modal: this.showWelcome && engine.state.phase === 'ticketing' ? 'welcome' : null,
       importText: '',
-      exportText: ''
+      exportText: '',
+      guidanceHidden: this.readGuidanceComplete()
     };
     this.timerHandle = null;
     this.pendingFocus = null;
@@ -26,6 +29,7 @@ export class UIController {
     this.modalRestoreFocus = null;
     this.autoPausedForModal = false;
     this.suppressNextPauseToast = false;
+    this.lastClockPersistAt = 0;
   }
 
   start() {
@@ -35,7 +39,7 @@ export class UIController {
     }
 
     this.engine.on('stateChanged', ({ reason }) => {
-      this.saveManager.save(this.engine.state);
+      this.persistState();
       this.syncModalToPhase();
       this.render();
       this.toastForReason(reason);
@@ -48,8 +52,15 @@ export class UIController {
 
     this.syncModalToPhase();
     this.render();
-    this.saveManager.save(this.engine.state);
+    this.persistState();
     this.timerHandle = window.setInterval(() => this.refreshClock(), 500);
+    window.addEventListener('pagehide', () => this.persistState());
+  }
+
+  persistState(now = this.engine.now?.() ?? Date.now()) {
+    this.engine.commitElapsed(now);
+    this.lastClockPersistAt = Number(now) || Date.now();
+    return this.saveManager.save(this.engine.state);
   }
 
   render() {
@@ -103,8 +114,14 @@ export class UIController {
   }
 
   refreshClock() {
+    const now = Date.now();
+    const deadlineResult = this.engine.processDeadlines?.(now);
+    if (deadlineResult?.incidentExpired || deadlineResult?.timedEventExpired || deadlineResult?.shiftEnded) return;
     const snapshot = this.engine.getSnapshot();
-    if (snapshot.state.phase === 'ticketing' && !snapshot.state.paused && snapshot.remainingMs <= 0) {
+    if (snapshot.state.phase === 'ticketing' && !snapshot.state.paused && now - this.lastClockPersistAt >= 5_000) {
+      this.persistState(now);
+    }
+    if (snapshot.state.phase === 'ticketing' && !snapshot.state.paused && !snapshot.activeIncident && snapshot.remainingMs <= 0) {
       this.engine.endShift('timeout');
       return;
     }
@@ -115,6 +132,26 @@ export class UIController {
       timerBar.style.setProperty('--pct', `${snapshot.timerPercent}%`);
       timerBar.classList.toggle('bad', snapshot.timerPercent < 22);
       timerBar.classList.toggle('info', snapshot.timerPercent >= 22);
+    }
+    const incidentText = this.root.querySelector('#incidentTimerText, #incidentTimer');
+    const incidentBar = this.root.querySelector('#incidentTimerBar, #incidentBar');
+    if (snapshot.activeIncident && incidentText) {
+      incidentText.textContent = snapshot.activeIncident.expired
+        ? 'Fallout applied'
+        : formatDuration(snapshot.activeIncident.remainingMs);
+    }
+    if (snapshot.activeIncident && incidentBar) {
+      incidentBar.style.setProperty('--pct', `${snapshot.activeIncident.timerPercent}%`);
+      incidentBar.classList.toggle('bad', snapshot.activeIncident.timerPercent < 25 || snapshot.activeIncident.expired);
+    }
+    const timedEventText = this.root.querySelector('#timedEventTimer');
+    const timedEventBar = this.root.querySelector('#timedEventBar');
+    if (snapshot.activeTimedEvent && timedEventText) {
+      timedEventText.textContent = formatDuration(snapshot.activeTimedEvent.remainingMs);
+    }
+    if (snapshot.activeTimedEvent && timedEventBar) {
+      timedEventBar.style.setProperty('--pct', `${snapshot.activeTimedEvent.timerPercent}%`);
+      timedEventBar.classList.toggle('bad', snapshot.activeTimedEvent.timerPercent < 30);
     }
   }
 
@@ -127,13 +164,25 @@ export class UIController {
       case 'select-ticket':
         this.pendingFocus = '#mailSubject';
         this.pendingScrollToReader = true;
-        this.engine.selectTicket(trigger.dataset.ticketId);
+        if (!this.engine.selectTicket(trigger.dataset.ticketId)) {
+          const snapshot = this.engine.getSnapshot();
+          if (snapshot.activeTimedEvent) {
+            this.showToast('Office interruption active', 'Choose a timed response before returning to the queue.');
+          } else if (snapshot.activeIncident) {
+            this.showToast('Incident protocol active', 'Resolve the critical case before returning to the rest of the queue.');
+          }
+        }
         break;
       case 'resolve-ticket':
         if (this.ui.modal || this.engine.state.paused) return;
         this.pendingFocus = '#mailSubject';
         this.pendingScrollToReader = true;
         this.engine.resolveSelectedTicket(trigger.dataset.actionId);
+        break;
+      case 'resolve-timed-event':
+        if (this.ui.modal || this.engine.state.paused) return;
+        this.pendingFocus = '#mailSubject';
+        this.engine.resolveTimedEvent?.(trigger.dataset.eventChoiceId);
         break;
       case 'set-filter':
         this.ui.filter = trigger.dataset.filter ?? 'open';
@@ -146,7 +195,9 @@ export class UIController {
         this.render();
         break;
       case 'set-right-tab':
-        this.ui.rightTab = trigger.dataset.tab ?? 'ops';
+        this.ui.rightTab = ['ops', 'log'].includes(trigger.dataset.tab)
+          ? trigger.dataset.tab
+          : 'ops';
         this.pendingFocus = `[data-action="set-right-tab"][data-tab="${escapeSelectorValue(this.ui.rightTab)}"]`;
         this.render();
         break;
@@ -168,12 +219,33 @@ export class UIController {
         this.engine.endShift('cleared');
         break;
       case 'advance-shift':
+        if (this.engine.state.activeShiftId === 1) this.hideGuidance();
         this.ui.modal = null;
         this.autoPausedForModal = false;
         this.modalRestoreFocus = null;
         this.pendingFocus = '.ticket-button';
         this.engine.advanceShift();
         break;
+      case 'choose-artifact': {
+        const artifactId = trigger.dataset.artifactId ?? 'none';
+        this.pendingFocus = '[data-action="advance-shift"]';
+        if (!this.engine.chooseArtifact?.(artifactId)) return;
+        this.showToast(
+          artifactId === 'none' ? 'Desk left unchanged' : 'Artifact equipped',
+          artifactId === 'none' ? 'You declined this audit\'s offers.' : 'Its benefit and drawback now follow you for the rest of this assignment.'
+        );
+        break;
+      }
+      case 'choose-office-room': {
+        const roomId = trigger.dataset.roomId ?? '';
+        this.pendingFocus = '[data-action="choose-artifact"], [data-action="advance-shift"]';
+        if (!this.engine.chooseOfficeRoom?.(roomId)) return;
+        this.showToast(
+          'Room restored',
+          'Its benefit, operating cost, and future office emergency now belong to this assignment.'
+        );
+        break;
+      }
       case 'export-save':
         this.exportSave();
         break;
@@ -186,6 +258,9 @@ export class UIController {
         break;
       case 'reset-run':
         this.resetRun();
+        break;
+      case 'dismiss-guidance':
+        this.hideGuidance({ announce: true });
         break;
       default:
         break;
@@ -244,7 +319,14 @@ export class UIController {
     if (event.key >= '1' && event.key <= '8') {
       if (this.engine.state.paused) return;
       const index = Number(event.key) - 1;
-      const action = this.engine.getSnapshot().actionList[index];
+      const snapshot = this.engine.getSnapshot();
+      const eventChoice = snapshot.activeTimedEvent?.choices?.[index];
+      if (eventChoice) {
+        event.preventDefault();
+        this.engine.resolveTimedEvent?.(eventChoice.id);
+        return;
+      }
+      const action = snapshot.actionList[index];
       if (action) {
         event.preventDefault();
         this.engine.resolveSelectedTicket(action.id);
@@ -326,7 +408,7 @@ export class UIController {
     if (active.id) return `#${escapeSelectorValue(active.id)}`;
     if (!active.dataset.action) return null;
 
-    const attributes = ['action', 'modal', 'ticketId', 'actionId', 'filter', 'tab', 'setting'];
+    const attributes = ['action', 'modal', 'ticketId', 'actionId', 'artifactId', 'eventChoiceId', 'filter', 'tab', 'setting'];
     return attributes
       .filter(key => active.dataset[key])
       .map(key => `[data-${camelToKebab(key)}="${escapeSelectorValue(active.dataset[key])}"]`)
@@ -370,6 +452,7 @@ export class UIController {
   }
 
   exportSave() {
+    this.persistState();
     const text = this.saveManager.export(this.engine.state);
     this.ui.exportText = text;
     this.openModal('export');
@@ -408,8 +491,30 @@ export class UIController {
     }
   }
 
+  readGuidanceComplete() {
+    try {
+      return window.localStorage.getItem(GUIDANCE_STORAGE_KEY) === 'complete';
+    } catch {
+      return false;
+    }
+  }
+
+  hideGuidance({ announce = false } = {}) {
+    this.ui.guidanceHidden = true;
+    try {
+      window.localStorage.setItem(GUIDANCE_STORAGE_KEY, 'complete');
+    } catch {
+      // The coach can still be hidden for this tab when storage is unavailable.
+    }
+
+    if (!announce) return;
+    this.pendingFocus = '#mailSubject';
+    this.render();
+    this.showToast('First-shift tips hidden', 'The normal queue and audit controls remain available.');
+  }
+
   resetRun() {
-    const confirmed = window.confirm('Reset this run and clear local progress?');
+    const confirmed = window.confirm('Start a new assignment and clear local progress?');
     if (!confirmed) return;
     const cleared = this.saveManager.clear();
     this.ui.modal = null;
@@ -447,7 +552,16 @@ export class UIController {
       return;
     }
     const messages = {
-      'resolve-ticket': ['Ticket resolved', 'Consequences have been added to the audit log.'],
+      'resolve-ticket': ['Case resolved', 'Your read, exact consequences, and earned Insight are now revealed.'],
+      'reply-technique-unlocked': ['Promotion earned', 'Your supervisor added a new special reply to the playbook.'],
+      'incident-start': ['Critical incident', 'The shift clock is paused while the incident protocol runs.'],
+      'incident-warning-30': ['Incident deadline', 'Thirty seconds remain.'],
+      'incident-warning-10': ['Incident deadline', 'Ten seconds remain. Commit to a response.'],
+      'incident-timeout': ['Incident fallout', 'The deadline passed. Fallout was applied, but the case still needs a response.'],
+      'timed-event-start': ['Office interruption', 'The shift clock is paused. Choose a response before the short deadline.'],
+      'timed-event-warning-10': ['Office interruption', 'Ten seconds remain.'],
+      'timed-event-resolved': ['Interruption handled', 'Your choice was recorded and earned +1 Insight.'],
+      'timed-event-timeout': ['Interruption expired', 'The office made the choice for you. Fallout was applied.'],
       'advance-shift': ['New shift', 'Fresh tickets loaded. Previous choices may follow.'],
       'end-shift': ['Shift audit ready', 'Review outcomes before advancing.'],
       pause: [this.engine.state.paused ? 'Paused' : 'Resumed', this.engine.state.paused ? 'The timer is stopped.' : 'The timer is moving again.']
