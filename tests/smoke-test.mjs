@@ -6,7 +6,9 @@ import { TextDecoder } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import { ACTION_CATALOG } from '../src/content/actionCatalog.js';
-import { SHIFTS } from '../src/content/shifts.js';
+import { ARTIFACTS, OFFICE_PATHS, OFFICE_ROOMS } from '../src/content/artifacts.js';
+import { CASE_FILES } from '../src/content/caseFiles.js';
+import { SHIFTS, TIMED_EVENTS } from '../src/content/shifts.js';
 import { TICKETS } from '../src/content/tickets.js';
 import { GameEngine } from '../src/core/GameEngine.js';
 import { CURRENT_SAVE_SCHEMA, SaveManager } from '../src/core/SaveManager.js';
@@ -31,9 +33,12 @@ const expectedFiles = [
   'assets/screenshot-mobile.jpg',
   'assets/screenshot-shift-audit.jpg',
   'index.html',
+  'manifest.webmanifest',
   'netlify.toml',
   'package.json',
   'src/content/actionCatalog.js',
+  'src/content/artifacts.js',
+  'src/content/caseFiles.js',
   'src/content/shifts.js',
   'src/content/tickets.js',
   'src/core/GameEngine.js',
@@ -89,6 +94,27 @@ function validateContent() {
     const authored = TICKETS.filter(ticket => ticket.shiftId === shift.id && ticket.defaultAvailable !== false);
     assert.ok(authored.length >= 5, `shift ${shift.id} should include at least five default tickets`);
   }
+
+  assert.equal(ARTIFACTS.length, 8, 'the desk-artifact catalog should remain complete');
+  assert.equal(OFFICE_ROOMS.length, 6, 'the office blueprint should expose six rooms');
+  assert.ok(OFFICE_PATHS.length >= 6, 'room combinations should support multiple office identities');
+  assert.equal(
+    TIMED_EVENTS.filter(event => event.roomEvent).length,
+    OFFICE_ROOMS.length,
+    'every room should have an authored operating complication'
+  );
+
+  for (const ticket of TICKETS) {
+    const caseFile = CASE_FILES[ticket.id];
+    assert.ok(caseFile?.focus, `${ticket.id} should have a readable case focus`);
+    for (const actionId of Object.keys(ticket.actions ?? {})) {
+      assert.ok(
+        ['strong', 'defensible', 'missed'].includes(caseFile.grades?.[actionId]),
+        `${ticket.id}/${actionId} should have a valid case grade`
+      );
+      assert.ok(caseFile.reasons?.[actionId], `${ticket.id}/${actionId} should explain its grade`);
+    }
+  }
 }
 
 function validateFiveShiftPlaythrough() {
@@ -107,10 +133,23 @@ function validateFiveShiftPlaythrough() {
     assert.equal(engine.state.activeShiftId, shift.id, `shift ${shift.id} should open in sequence`);
     assert.equal(engine.state.phase, 'ticketing', `shift ${shift.id} should accept tickets`);
 
-    while (engine.getOpenTicketIds().length > 0) {
-      const nextTicketId = engine.getOpenTicketIds()[0];
+    while (engine.state.phase === 'ticketing' && engine.getOpenTicketIds().length > 0) {
+      const snapshot = engine.getSnapshot();
+      if (snapshot.activeTimedEvent) {
+        const eventChoice = snapshot.activeTimedEvent.choices[0];
+        assert.equal(
+          engine.resolveTimedEvent(eventChoice.id).ok,
+          true,
+          `${snapshot.activeTimedEvent.eventId} should resolve`
+        );
+        now += 1_000;
+        continue;
+      }
+      const nextTicketId = snapshot.activeIncident && !snapshot.activeIncident.expired
+        ? snapshot.activeIncident.ticketId
+        : snapshot.openTicketIds[0];
       assert.equal(engine.selectTicket(nextTicketId), true, `${nextTicketId} should be selectable`);
-      const action = engine.getSnapshot().actionList[0];
+      const action = chooseStableSmokeAction(engine.getSnapshot());
       assert.ok(action, `${nextTicketId} should have a playable response`);
       assert.equal(engine.resolveSelectedTicket(action.id).ok, true, `${nextTicketId} should resolve`);
       assert.notEqual(engine.state.phase, 'gameOver', `baseline path should survive shift ${shift.id}`);
@@ -119,13 +158,40 @@ function validateFiveShiftPlaythrough() {
 
     assert.equal(engine.endShift('cleared'), true, `shift ${shift.id} should close cleanly`);
     assert.equal(engine.state.phase, 'shiftSummary', `shift ${shift.id} should produce an audit`);
-    assert.equal(engine.advanceShift(), true, `shift ${shift.id} should advance`);
+    if (shift.id < SHIFTS.length) {
+      const roomChoice = engine.state.progression.pendingRoomChoices[0];
+      const artifactChoice = engine.state.progression.pendingArtifactChoices[0] ?? 'none';
+      assert.equal(engine.advanceShift(), false, 'advancement should wait for both audit choices');
+      assert.equal(engine.chooseOfficeRoom(roomChoice), true, 'an offered room should be restorable');
+      assert.equal(engine.chooseArtifact(artifactChoice), true, 'an offered artifact should be selectable');
+      assert.equal(engine.advanceShift(), true, `shift ${shift.id} should advance`);
+    }
   }
 
+  assert.equal(engine.advanceShift(), true, 'the final audit should close the campaign');
   assert.equal(engine.state.phase, 'demoComplete', 'the fifth audit should complete the game');
   assert.equal(engine.state.shiftHistory.length, 5, 'all five shift audits should be retained');
   assert.equal(engine.state.failureReason, null, 'baseline path should complete without failure');
+  assert.match(engine.getSnapshot().careerCasework.grade, /^[A-F]$/, 'the campaign should end with a probation grade');
+  assert.equal(engine.state.progression.officeRooms.length, 4, 'four between-shift audits should restore four rooms');
   return engine;
+}
+
+function chooseStableSmokeAction(snapshot) {
+  const gradeWeight = { strong: 2, defensible: 1, missed: 0 };
+  const safetyScore = action => {
+    const delta = action.delta ?? {};
+    return Number(delta.reputation ?? 0)
+      + Number(delta.sanity ?? 0)
+      + Number(delta.containment ?? 0)
+      - Number(delta.soulRisk ?? 0)
+      - Number(delta.inboxHeat ?? 0)
+      + Number(delta.cash ?? 0) / 20;
+  };
+  return [...snapshot.actionList].sort((left, right) => {
+    const gradeDifference = (gradeWeight[right.caseGrade] ?? 0) - (gradeWeight[left.caseGrade] ?? 0);
+    return gradeDifference || safetyScore(right) - safetyScore(left) || left.id.localeCompare(right.id);
+  })[0];
 }
 
 function validatePersistence(state) {

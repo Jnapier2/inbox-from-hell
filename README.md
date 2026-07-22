@@ -10,18 +10,21 @@ Designed and developed by **Jerry R. Napier**.
 
 ## Overview
 
-**Inbox From Hell** turns a familiar support queue into a five-shift workplace-horror simulation. Players resolve 29 authored tickets, balance six competing metrics, unlock new departments, and carry earlier decisions into later shifts.
+**Inbox From Hell** turns a familiar support queue into a five-shift workplace-horror simulation. Players resolve 29 authored tickets, balance six competing metrics, earn case grades, restore a six-room office, and carry earlier decisions into later shifts.
 
-Behind the playful premise is a practical systems-design exercise: model branching decisions clearly, preserve progress safely, and keep a dense interface usable across desktop and mobile. The same architecture could support training or policy simulations where decisions create measurable downstream tradeoffs.
+Behind the playful premise is a practical systems-design exercise: make branching decisions understandable, connect short-term feedback to long-term progression, preserve progress safely, and keep a dense interface usable across desktop and mobile. The same architecture could support training or policy simulations where decisions create measurable downstream tradeoffs.
 
 ## Highlights
 
 - Data-driven tickets and outcomes keep narrative content separate from game rules, making the experience easier to extend and tune.
+- Every reply produces a case grade, points, rationale, and confirmed consequences, giving players immediate evidence instead of opaque meter movement.
+- Interlocking case, shift, office, customer-file, and career progression creates visible near- and long-term goals without expanding the core inbox interaction.
+- Six rooms pair benefits with operating complications; their combinations create six viable office identities and unlock the Executive Elevator after three restorations.
 - Centralized action definitions and bounded metrics keep consequences consistent across all five shifts.
-- Schema-aware local saves protect corrupt, incompatible, and conflicting progress instead of silently overwriting it.
+- Schema-aware local saves migrate earlier progress and protect corrupt, incompatible, and conflicting data instead of silently overwriting it.
 - Responsive controls, reduced-motion support, adjustable text scale, keyboard shortcuts, focus management, and semantic dialogs improve access across devices.
 - A client-only architecture keeps gameplay private and removes server cost, account management, and runtime dependency risk.
-- Automated CI completes a full playthrough and validates every ticket, save recovery, source syntax, security configuration, and repository scope on Node 20 and 22.
+- Automated CI completes the campaign and validates every ticket, progression relationship, safe persistence, source syntax, security configuration, and repository scope on Node 20 and 22.
 
 ## Screens
 
@@ -55,7 +58,7 @@ Node.js 20 or newer is required for the dependency-free acceptance test:
 node tests/smoke-test.mjs
 ```
 
-The test traverses a complete five-shift run and checks content relationships, safe persistence, UTF-8 text, browser entry points, security configuration, image assets, JavaScript syntax, and repository scope.
+The test traverses a complete five-shift campaign and checks grading, rooms, office identities, timed events, safe persistence, UTF-8 text, browser entry points, security configuration, image assets, JavaScript syntax, and repository scope.
 
 ## Deploy
 
@@ -65,7 +68,7 @@ The application is deployed directly as a static site. There is no install or bu
 
 ```text
 src/core/       Game state, rules, and resilient persistence
-src/content/    Tickets, shifts, actions, and outcome data
+src/content/    Tickets, case grading, shifts, rooms, artifacts, and outcomes
 src/ui/         Accessible rendering and browser interaction
 tests/          Dependency-free acceptance test
 assets/         Promotional cover and product screenshots

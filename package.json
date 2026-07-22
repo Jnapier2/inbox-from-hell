@@ -1,9 +1,9 @@
 {
   "name": "inbox-from-hell",
-  "version": "0.2.8",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
-  "description": "Dependency-free browser game demonstrating stateful decision modeling, resilient local saves, accessible UI, and full-playthrough acceptance testing.",
+  "description": "Dependency-free browser game demonstrating layered progression, transparent decision feedback, resilient local saves, accessible UI, and full-campaign acceptance testing.",
   "scripts": {
     "test": "node tests/smoke-test.mjs"
   },
